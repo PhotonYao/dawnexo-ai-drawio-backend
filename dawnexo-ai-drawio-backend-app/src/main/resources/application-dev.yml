@@ -37,8 +37,8 @@ spring:
       - classpath:agent/parallel_research_app.yml
   ai:
     openai:
-      api-key: 
-      base-url: https://opencode.ai/zen
+      api-key:
+      base-url: https://apihub.agnes-ai.com
 # MyBatis 配置【如需使用记得打开】
 #mybatis:
 #  mapper-locations: classpath:/mybatis/mapper/*.xml
