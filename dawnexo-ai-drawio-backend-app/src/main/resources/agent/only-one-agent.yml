@@ -3,15 +3,15 @@ ai:
     config:
       tables:
         testAgent01:
-          app-name: testAgent03
+          app-name: agent01
           agent:
-            agent-id: 100003
+            agent-id: 100001
             agent-name: 单一智能体
             agent-desc: 单一智能体
           module:
             ai-api:
               base-url: https://apihub.agnes-ai.com/
-              api-key:
+              api-key: 
               completions-path: v1/chat/completions
               embeddings-path: v1/embeddings
             chat-model:

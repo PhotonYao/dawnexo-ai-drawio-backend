@@ -1,7 +1,10 @@
 package top.kangyaocoding.ai.trigger.http;
 
+import com.alibaba.fastjson.JSON;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
@@ -167,7 +170,28 @@ public class AgentServiceController implements IAgentService {
 
             // 构建响应对象
             ChatResponseDTO responseDTO = new ChatResponseDTO();
-            responseDTO.setContent(String.join("\n", messages));
+
+            // 尝试获取最后一条消息并解析
+            try {
+                String result = messages.stream()
+                        .skip(messages.size() - 1)  // 跳过前面的所有元素
+                        .findFirst()
+                        .orElse("");
+                ChatResponseDTO parsed = JSON.parseObject(result, ChatResponseDTO.class);
+
+                if (ObjectUtils.isNotEmpty(parsed)) {
+                    responseDTO = parsed;
+                    if (StringUtils.isBlank(responseDTO.getType())) {
+                        responseDTO.setType("user");
+                    }
+                } else {
+                    responseDTO.setType("user");
+                    responseDTO.setContent(String.join("\n", messages));
+                }
+            } catch (Exception e) {
+                responseDTO.setType("user");
+                responseDTO.setContent(String.join("\n", messages));
+            }
 
             // 返回成功响应
             return Response.<ChatResponseDTO>builder()

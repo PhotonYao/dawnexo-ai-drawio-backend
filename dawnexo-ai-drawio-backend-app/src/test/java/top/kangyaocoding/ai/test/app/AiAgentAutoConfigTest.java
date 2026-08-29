@@ -75,7 +75,7 @@ public class AiAgentAutoConfigTest {
 
         Session session = runner.sessionService().createSession(appName, "Herbert").blockingGet();
 
-        Content content = Content.fromParts(Part.fromText("帮我整理一个学习机计划"));
+        Content content = Content.fromParts(Part.fromText("帮我绘制一个登录流程图"));
 
         Flowable<Event> events = runner.runAsync("Herbert", session.id(), content);
 

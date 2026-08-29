@@ -5,7 +5,7 @@ ai:
         testAgent:
           app-name: testAgent
           agent:
-            agent-id: 100001
+            agent-id: 100000
             agent-name: 测试智能体01
             agent-desc: 一个测试的智能体
           module:

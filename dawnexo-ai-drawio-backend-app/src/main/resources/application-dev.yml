@@ -32,12 +32,13 @@ spring:
 
   config:
     import:
-      - classpath:agent/test-agent.yml
+      - classpath:agent/agent-draw-io.yml
+#      - classpath:agent/test-agent.yml
       - classpath:agent/only-one-agent.yml
       - classpath:agent/parallel_research_app.yml
   ai:
     openai:
-      api-key:
+      api-key: 
       base-url: https://apihub.agnes-ai.com
 # MyBatis 配置【如需使用记得打开】
 #mybatis:
