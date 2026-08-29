@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 智能体 · 对话</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: #0b1020; color: #e2e8f0; height: 100vh; overflow: hidden;
+        }
+        .app { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
+
+        /* 顶部栏 */
+        .topbar {
+            display: flex; align-items: center; gap: 16px;
+            padding: 14px 24px;
+            background: rgba(15,23,42,0.85);
+            border-bottom: 1px solid rgba(148,163,184,0.12);
+            backdrop-filter: blur(8px);
+        }
+        .topbar .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; color: #fff; }
+        .topbar .logo .dot {
+            width: 32px; height: 32px; border-radius: 10px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            display: grid; place-items: center; font-size: 16px;
+        }
+        .topbar .spacer { flex: 1; }
+        .controls { display: flex; align-items: center; gap: 10px; }
+        select {
+            height: 40px; padding: 0 12px; border-radius: 10px;
+            background: #0b1020; border: 1px solid rgba(148,163,184,0.25);
+            color: #e2e8f0; font-size: 14px; outline: none; min-width: 180px;
+        }
+        select:focus { border-color: #8b5cf6; }
+        .btn {
+            height: 40px; padding: 0 16px; border-radius: 10px; border: none;
+            background: rgba(148,163,184,0.15); color: #e2e8f0;
+            font-size: 14px; font-weight: 600; cursor: pointer; transition: background .2s, transform .12s;
+        }
+        .btn:hover { background: rgba(148,163,184,0.28); }
+        .btn:active { transform: scale(.98); }
+        .btn.primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; }
+        .btn.primary:hover { opacity: .94; }
+        .user { display: flex; align-items: center; gap: 8px; color: #cbd5e1; font-size: 14px; }
+        .user .avatar {
+            width: 30px; height: 30px; border-radius: 50%;
+            background: linear-gradient(135deg,#22d3ee,#6366f1);
+            display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px;
+        }
+
+        /* 会话区 */
+        .chat {
+            overflow-y: auto; padding: 28px 24px; scroll-behavior: smooth;
+            background:
+                radial-gradient(900px 500px at 80% -10%, rgba(139,92,246,0.10), transparent 60%),
+                radial-gradient(800px 500px at -10% 110%, rgba(99,102,241,0.10), transparent 60%);
+        }
+        .chat-inner { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+        .msg { display: flex; gap: 12px; max-width: 78%; }
+        .msg .bubble {
+            padding: 12px 16px; border-radius: 16px; font-size: 15px; line-height: 1.65;
+            white-space: pre-wrap; word-break: break-word;
+        }
+        /* 用户：左侧 */
+        .msg.user { align-self: flex-start; }
+        .msg.user .bubble {
+            background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff;
+            border-bottom-left-radius: 4px;
+        }
+        .msg.user .ava {
+            width: 36px; height: 36px; border-radius: 10px; flex: none;
+            background: linear-gradient(135deg,#22d3ee,#6366f1);
+            display: grid; place-items: center; color: #fff; font-weight: 700;
+        }
+        /* 智能体：右侧 */
+        .msg.agent { align-self: flex-end; flex-direction: row-reverse; }
+        .msg.agent .bubble {
+            background: rgba(30,41,59,0.85); border: 1px solid rgba(148,163,184,0.18);
+            color: #e2e8f0; border-bottom-right-radius: 4px;
+        }
+        .msg.agent .ava {
+            width: 36px; height: 36px; border-radius: 10px; flex: none;
+            background: linear-gradient(135deg,#8b5cf6,#ec4899);
+            display: grid; place-items: center; color: #fff; font-weight: 700;
+        }
+        .typing span {
+            display: inline-block; width: 7px; height: 7px; margin: 0 2px; border-radius: 50%;
+            background: #94a3b8; animation: blink 1.2s infinite both;
+        }
+        .typing span:nth-child(2) { animation-delay: .2s; }
+        .typing span:nth-child(3) { animation-delay: .4s; }
+        @keyframes blink { 0%,80%,100%{opacity:.3;} 40%{opacity:1;} }
+        .empty { text-align: center; color: #64748b; margin-top: 18vh; }
+        .empty h3 { color: #cbd5e1; font-weight: 600; margin-bottom: 8px; }
+        .session-tag { font-size: 12px; color: #64748b; text-align: center; }
+
+        /* 输入区 */
+        .composer {
+            display: flex; gap: 12px; align-items: flex-end;
+            padding: 16px 24px; border-top: 1px solid rgba(148,163,184,0.12);
+            background: rgba(15,23,42,0.85);
+        }
+        .composer textarea {
+            flex: 1; resize: none; min-height: 48px; max-height: 140px;
+            padding: 13px 16px; border-radius: 14px;
+            background: #0b1020; border: 1px solid rgba(148,163,184,0.25);
+            color: #e2e8f0; font-size: 15px; line-height: 1.5; outline: none;
+            transition: border-color .2s, box-shadow .2s;
+        }
+        .composer textarea:focus { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.22); }
+        .composer .send { height: 48px; padding: 0 22px; }
+
+        /* 错误遮罩 */
+        .mask {
+            position: fixed; inset: 0; display: none; place-items: center;
+            background: rgba(2,6,23,0.7); backdrop-filter: blur(4px); z-index: 50;
+        }
+        .mask.show { display: grid; }
+        .mask .box {
+            width: 90%; max-width: 420px; padding: 28px;
+            background: #0f172a; border: 1px solid rgba(148,163,184,0.2);
+            border-radius: 18px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .mask .box h3 { color: #fff; margin-bottom: 10px; }
+        .mask .box p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin-bottom: 18px; }
+        .mask .box code { color: #a5b4fc; background: #1e293b; padding: 1px 6px; border-radius: 6px; }
+    </style>
+</head>
+<body>
+<div class="app">
+    <header class="topbar">
+        <div class="logo"><span class="dot">✦</span> AI 智能体</div>
+        <div class="spacer"></div>
+        <div class="controls">
+            <select id="agentSelect" title="选择智能体">
+                <option value="">加载智能体中…</option>
+            </select>
+            <button class="btn" id="newBtn" title="新建会话">＋ 新建</button>
+        </div>
+        <div class="user">
+            <span class="avatar" id="userAvatar">U</span>
+            <span id="userName">未登录</span>
+            <button class="btn" id="logoutBtn" title="退出登录">退出</button>
+        </div>
+    </header>
+
+    <main class="chat" id="chat">
+        <div class="chat-inner" id="chatInner">
+            <div class="empty" id="emptyState">
+                <h3>开始你的智能对话</h3>
+                <p>选择智能体，点击「新建」创建会话，或直接输入消息开始交流。</p>
+            </div>
+        </div>
+    </main>
+
+    <footer class="composer">
+        <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行…" rows="1"></textarea>
+        <button class="btn primary send" id="sendBtn">发送</button>
+    </footer>
+</div>
+
+<div class="mask" id="mask">
+    <div class="box">
+        <h3>服务端接口不可用</h3>
+        <p>请确认后端服务已启动（端口 8091），并检查 <code>js/config.js</code> 中的 <code>API_BASE</code> 配置。</p>
+        <button class="btn primary" id="retryBtn">我已启动，重试</button>
+    </div>
+</div>
+
+<script src="js/config.js"></script>
+<script>
+(function () {
+    var CFG = window.APP_CONFIG;
+    var COOKIE = CFG.LOGIN_COOKIE;
+
+    // ---------- 工具 ----------
+    function getCookie(name) {
+        var m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]*)'));
+        return m ? decodeURIComponent(m[2]) : null;
+    }
+    function api(path) { return CFG.API_BASE + CFG.API_PREFIX + path; }
+    function showMask(show) { document.getElementById('mask').classList.toggle('show', show); }
+
+    // ---------- 登录校验 ----------
+    var raw = getCookie(COOKIE);
+    var userId = null;
+    if (raw) {
+        try { var p = JSON.parse(raw); if (p && p.user) userId = p.user; } catch (e) {}
+    }
+    if (!userId) { window.location.href = 'login.html'; return; }
+
+    document.getElementById('userName').textContent = userId;
+    document.getElementById('userAvatar').textContent = userId.charAt(0).toUpperCase();
+
+    // ---------- 状态 ----------
+    var currentAgentId = '';
+    var currentSessionId = '';
+    var chatInner = document.getElementById('chatInner');
+    var emptyState = document.getElementById('emptyState');
+    var input = document.getElementById('input');
+
+    // ---------- 智能体列表 ----------
+    function loadAgents() {
+        fetch(api('/query_ai_agent_config_list'))
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (!res || res.code !== '0000' || !res.data) throw new Error('data');
+                var sel = document.getElementById('agentSelect');
+                sel.innerHTML = '';
+                res.data.forEach(function (a) {
+                    var opt = document.createElement('option');
+                    opt.value = a.agentId;
+                    opt.textContent = a.agentName + (a.agentDesc ? '（' + a.agentDesc + '）' : '');
+                    sel.appendChild(opt);
+                });
+                if (res.data.length) { currentAgentId = res.data[0].agentId; sel.value = currentAgentId; }
+                showMask(false);
+            })
+            .catch(function () { showMask(true); });
+    }
+
+    document.getElementById('agentSelect').addEventListener('change', function (e) {
+        currentAgentId = e.target.value;
+        currentSessionId = ''; // 切换智能体清空会话
+    });
+
+    // ---------- 会话 ----------
+    function createSession(cb) {
+        if (!currentAgentId) { alert('请先选择智能体'); return; }
+        fetch(api('/create_session?agentId=' + encodeURIComponent(currentAgentId) + '&userId=' + encodeURIComponent(userId)), {
+            method: 'GET'
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (!res || res.code !== '0000' || !res.data) throw new Error('create');
+                currentSessionId = res.data.sessionId;
+                if (cb) cb();
+            })
+            .catch(function () { alert('创建会话失败，请确认服务端可用'); });
+    }
+
+    document.getElementById('newBtn').addEventListener('click', function () {
+        emptyState.style.display = 'none';
+        createSession();
+    });
+
+    // ---------- 渲染 ----------
+    function addMessage(role, text) {
+        emptyState.style.display = 'none';
+        var msg = document.createElement('div');
+        msg.className = 'msg ' + role;
+        var ava = document.createElement('div');
+        ava.className = 'ava';
+        ava.textContent = role === 'user' ? userId.charAt(0).toUpperCase() : '✦';
+        var bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = text;
+        msg.appendChild(ava); msg.appendChild(bubble);
+        chatInner.appendChild(msg);
+        scrollBottom();
+        return bubble;
+    }
+    function scrollBottom() {
+        var chat = document.getElementById('chat');
+        chat.scrollTop = chat.scrollHeight;
+    }
+
+    // ---------- 发送 ----------
+    function send() {
+        var text = input.value.trim();
+        if (!text) return;
+        if (!currentAgentId) { alert('请先选择智能体'); return; }
+
+        addMessage('user', text);
+        input.value = ''; input.style.height = 'auto';
+
+        var ensure = function (done) {
+            if (currentSessionId) return done();
+            createSession(done);
+        };
+        ensure(function () {
+            var typing = document.createElement('div');
+            typing.className = 'msg agent';
+            typing.innerHTML = '<div class="ava">✦</div><div class="bubble typing"><span></span><span></span><span></span></div>';
+            chatInner.appendChild(typing); scrollBottom();
+
+            fetch(api('/chat'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    agentId: currentAgentId,
+                    userId: userId,
+                    sessionId: currentSessionId,
+                    message: text
+                })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (res) {
+                    chatInner.removeChild(typing);
+                    if (!res || res.code !== '0000' || !res.data) {
+                        addMessage('agent', '【响应异常】' + (res ? res.info : '未知错误'));
+                    } else {
+                        addMessage('agent', res.data.content || '');
+                    }
+                })
+                .catch(function () {
+                    chatInner.removeChild(typing);
+                    addMessage('agent', '【网络错误】服务端无响应，请确认服务已启动。');
+                });
+        });
+    }
+
+    document.getElementById('sendBtn').addEventListener('click', send);
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    input.addEventListener('input', function () {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+    });
+
+    // ---------- 退出 ----------
+    document.getElementById('logoutBtn').addEventListener('click', function () {
+        document.cookie = COOKIE + '=; path=/; max-age=0';
+        window.location.href = 'login.html';
+    });
+
+    // ---------- 重试 ----------
+    document.getElementById('retryBtn').addEventListener('click', loadAgents);
+
+    // 启动
+    loadAgents();
+})();
+</script>
+</body>
+</html>
