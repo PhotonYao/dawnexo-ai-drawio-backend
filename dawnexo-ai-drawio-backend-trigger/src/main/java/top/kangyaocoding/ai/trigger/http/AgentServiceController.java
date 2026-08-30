@@ -159,11 +159,8 @@ public class AgentServiceController implements IAgentService {
         try {
             // 记录开始对话的日志信息
             log.info("智能体对话 agentId:{} userId:{}", requestDTO.getAgentId(), requestDTO.getUserId());
-            // 获取会话ID，如果不存在则创建新的会话
-            String sessionId = requestDTO.getSessionId();
-            if (sessionId == null || sessionId.isEmpty()) {
-                sessionId = chatService.createSession(requestDTO.getAgentId(), requestDTO.getUserId());
-            }
+            // 校验并确保会话归属正确（为空/绑定丢失/归属不符时自动创建新会话，防止会话交叉污染）
+            String sessionId = chatService.ensureSession(requestDTO.getAgentId(), requestDTO.getUserId(), requestDTO.getSessionId());
 
             // 处理用户消息并获取智能体回复
             List<String> messages = chatService.handleMessage(requestDTO.getAgentId(), requestDTO.getUserId(), sessionId, requestDTO.getMessage());
@@ -192,6 +189,9 @@ public class AgentServiceController implements IAgentService {
                 responseDTO.setType("user");
                 responseDTO.setContent(String.join("\n", messages));
             }
+
+            // 回传本次对话实际使用的会话 ID（可能因归属校验/自愈而更新，前端以此为准）
+            responseDTO.setSessionId(sessionId);
 
             // 返回成功响应
             return Response.<ChatResponseDTO>builder()
@@ -232,7 +232,9 @@ public class AgentServiceController implements IAgentService {
 
         try {
             log.info("流式对话 agentId:{} userId:{} sessionId:{} message:{}", requestDTO.getAgentId(), requestDTO.getUserId(), requestDTO.getSessionId(), requestDTO.getMessage());
-            chatService.handleMessageStream(requestDTO.getAgentId(), requestDTO.getUserId(), requestDTO.getSessionId(), requestDTO.getMessage())
+            // 校验并确保会话归属正确，防止会话交叉污染
+            String sessionId = chatService.ensureSession(requestDTO.getAgentId(), requestDTO.getUserId(), requestDTO.getSessionId());
+            chatService.handleMessageStream(requestDTO.getAgentId(), requestDTO.getUserId(), sessionId, requestDTO.getMessage())
                     .subscribe(
                             event -> {
                                 try {

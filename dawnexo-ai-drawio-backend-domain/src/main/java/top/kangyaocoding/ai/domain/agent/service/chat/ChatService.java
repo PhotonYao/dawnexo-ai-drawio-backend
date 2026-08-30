@@ -39,7 +39,17 @@ public class ChatService implements IChatService {
     @Resource
     private AiAgentAutoConfigProperties aiAgentAutoConfigProperties;
 
-    private final Map<String, String> userSessions = new ConcurrentHashMap<>();
+    /**
+     * 会话绑定关系：记录 sessionId 归属的智能体与用户，用于防止会话交叉污染
+     */
+    private record SessionBinding(String agentId, String userId, String appName) {
+    }
+
+    /**
+     * 会话绑定注册表：sessionId -> 归属信息（agentId + userId）。
+     * 注意：会话与绑定均保存在内存中，服务重启后绑定丢失，对话时将自动重建会话。
+     */
+    private final Map<String, SessionBinding> sessionBindings = new ConcurrentHashMap<>();
 
     /**
      * 查询已配置的智能体列表。
@@ -70,12 +80,13 @@ public class ChatService implements IChatService {
     }
 
     /**
-     * 为指定用户创建或获取与某个智能体的会话。
-     * 同一用户对同一智能体的会话只会创建一次，后续调用返回已存在的会话 ID。
+     * 为指定用户与某个智能体创建全新会话。
+     * 每次调用都会创建独立的新会话，保证每一次对话都有可独立定位的 sessionId，
+     * 避免不同对话之间共享会话导致的上下文交叉污染。
      *
      * @param agentId 智能体 ID
      * @param userId  用户 ID
-     * @return 会话 ID
+     * @return 新创建的会话 ID
      */
     @Override
     public String createSession(String agentId, String userId) {
@@ -85,17 +96,50 @@ public class ChatService implements IChatService {
         String appName = aiAgentRegisterVO.getAppName();
         InMemoryRunner runner = aiAgentRegisterVO.getRunner();
 
-        // 按用户 ID 复用会话；首次访问时为该用户创建新会话并缓存其会话 ID
-        return userSessions.computeIfAbsent(userId, uid -> {
-            // 阻塞创建会话并获取会话 ID
-            Session session = runner.sessionService().createSession(appName, uid).blockingGet();
-            return session.id();
-        });
+        // 每次调用均创建全新会话，并登记会话归属绑定关系
+        Session session = runner.sessionService().createSession(appName, userId).blockingGet();
+        sessionBindings.put(session.id(), new SessionBinding(agentId, userId, appName));
+        log.info("创建会话 agentId:{} userId:{} sessionId:{}", agentId, userId, session.id());
+        return session.id();
+    }
+
+    /**
+     * 校验并确保会话可用，返回一个归属于指定智能体与用户的有效会话 ID。
+     * 防止会话交叉污染：
+     * 1. 会话 ID 为空时，创建新会话；
+     * 2. 会话绑定不存在（如服务重启内存丢失）时，重建新会话（历史上下文不可恢复）；
+     * 3. 会话归属与请求的智能体/用户不一致时，隔离为全新会话，避免上下文串扰。
+     *
+     * @param agentId   智能体 ID
+     * @param userId    用户 ID
+     * @param sessionId 前端传入的会话 ID（可为空）
+     * @return 归属校验通过或自愈后的有效会话 ID
+     */
+    @Override
+    public String ensureSession(String agentId, String userId, String sessionId) {
+        // 会话 ID 为空，直接创建新会话
+        if (null == sessionId || sessionId.isEmpty()) {
+            return createSession(agentId, userId);
+        }
+
+        SessionBinding binding = sessionBindings.get(sessionId);
+        // 绑定不存在（服务重启等），重建会话自愈
+        if (null == binding) {
+            log.warn("会话绑定不存在，重建会话 sessionId:{}", sessionId);
+            return createSession(agentId, userId);
+        }
+        // 会话归属校验失败，隔离为全新会话，防止交叉污染
+        if (!binding.agentId().equals(agentId) || !binding.userId().equals(userId)) {
+            log.warn("会话与智能体或用户不匹配，隔离为新会话 sessionId:{} 绑定agentId:{} 请求agentId:{}",
+                    sessionId, binding.agentId(), agentId);
+            return createSession(agentId, userId);
+        }
+        return sessionId;
     }
 
     /**
      * 向指定智能体发送消息并获取完整回复。
-     * 内部会自动创建或复用用户会话，并阻塞等待所有事件处理完成。
+     * 内部会创建全新会话（每次调用即一次独立对话），并阻塞等待所有事件处理完成。
      *
      * @param agentId 智能体 ID
      * @param userId  用户 ID

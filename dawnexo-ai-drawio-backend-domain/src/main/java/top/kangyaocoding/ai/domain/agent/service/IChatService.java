@@ -22,14 +22,27 @@ public interface IChatService {
     List<AiAgentConfigTableVO.Agent> queryAiAgentConfigList();
 
     /**
-     * 为指定用户创建或获取与某个智能体的会话。
-     * 同一用户对同一智能体的会话只会创建一次，后续调用返回已存在的会话 ID。
+     * 为指定用户与某个智能体创建全新会话。
+     * 每次调用都会创建独立的新会话，保证每一次对话都有可独立定位的 sessionId，
+     * 避免不同对话之间共享会话导致的上下文交叉污染。
      *
      * @param agentId 智能体 ID
      * @param userId  用户 ID
-     * @return 会话 ID
+     * @return 新创建的会话 ID
      */
     String createSession(String agentId, String userId);
+
+    /**
+     * 校验并确保会话可用，返回一个归属于指定智能体与用户的有效会话 ID。
+     * 用于防止会话交叉污染：会话 ID 为空、绑定丢失（服务重启）或归属与请求的
+     * 智能体/用户不一致时，自动创建全新会话隔离上下文。
+     *
+     * @param agentId   智能体 ID
+     * @param userId    用户 ID
+     * @param sessionId 前端传入的会话 ID（可为空）
+     * @return 归属校验通过或自愈后的有效会话 ID
+     */
+    String ensureSession(String agentId, String userId, String sessionId);
 
     /**
      * 向指定智能体发送消息并获取完整回复。
