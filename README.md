@@ -60,4 +60,4 @@
 
 1. 配置模型密钥：编辑 `dawnexo-ai-drawio-backend-app/src/main/resources/agent/agent-draw-io.yml` 中的 `module.ai-api.api-key`；
 2. 启动：运行 `dawnexo-ai-drawio-backend-app` 模块的 `Application#main`（默认 dev 配置，端口 `8090`，生产 `8091`），或执行 `mvn -DskipTests package` 后运行 jar；
-3. 前端配套项目 [dawnexo-ai-drawio-front](../dawnexo-ai-drawio-front) 的后端地址在 `app/config/api-config.ts` 中配置（默认 `http://127.0.0.1:8090`）。
+3. 前端配套项目 [dawnexo-ai-drawio-front](https://github.com/PhotonYao/dawnexo-ai-drawio-front) 的后端地址在 `app/config/api-config.ts` 中配置（默认 `http://127.0.0.1:8090`）。
