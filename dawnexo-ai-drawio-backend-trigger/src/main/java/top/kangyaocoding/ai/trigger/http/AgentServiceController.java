@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 import top.kangyaocoding.ai.api.IAgentService;
 import top.kangyaocoding.ai.api.dto.*;
+import top.kangyaocoding.ai.api.enums.MessageTypeEnum;
 import top.kangyaocoding.ai.api.response.Response;
 import top.kangyaocoding.ai.domain.agent.model.valobj.AiAgentConfigTableVO;
 import top.kangyaocoding.ai.domain.agent.service.IChatService;
@@ -168,7 +169,7 @@ public class AgentServiceController implements IAgentService {
             // 构建响应对象
             ChatResponseDTO responseDTO = new ChatResponseDTO();
 
-            // 尝试获取最后一条消息并解析
+            // 尝试获取最后一条消息并解析（三字段结构：type / explanation / diagram）
             try {
                 String result = messages.stream()
                         .skip(messages.size() - 1)  // 跳过前面的所有元素
@@ -176,18 +177,26 @@ public class AgentServiceController implements IAgentService {
                         .orElse("");
                 ChatResponseDTO parsed = JSON.parseObject(result, ChatResponseDTO.class);
 
-                if (ObjectUtils.isNotEmpty(parsed)) {
+                if (ObjectUtils.isNotEmpty(parsed) && (parsed.hasExplanation() || parsed.hasDiagram())) {
                     responseDTO = parsed;
+                    // AI 未显式给出 type 时，按字段存在性自动推断
                     if (StringUtils.isBlank(responseDTO.getType())) {
-                        responseDTO.setType("user");
+                        if (responseDTO.isMixed()) {
+                            responseDTO.setType(MessageTypeEnum.MIXED.getCode());
+                        } else if (responseDTO.hasDiagram()) {
+                            responseDTO.setType(MessageTypeEnum.DRAWIO.getCode());
+                        } else {
+                            responseDTO.setType(MessageTypeEnum.USER.getCode());
+                        }
                     }
                 } else {
-                    responseDTO.setType("user");
-                    responseDTO.setContent(String.join("\n", messages));
+                    // 非结构化输出（空 JSON 或纯文本）降级为对话说明
+                    responseDTO.setType(MessageTypeEnum.USER.getCode());
+                    responseDTO.setExplanation(String.join("\n", messages));
                 }
             } catch (Exception e) {
-                responseDTO.setType("user");
-                responseDTO.setContent(String.join("\n", messages));
+                responseDTO.setType(MessageTypeEnum.USER.getCode());
+                responseDTO.setExplanation(String.join("\n", messages));
             }
 
             // 回传本次对话实际使用的会话 ID（可能因归属校验/自愈而更新，前端以此为准）

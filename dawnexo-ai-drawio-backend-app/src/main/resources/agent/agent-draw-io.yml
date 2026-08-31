@@ -28,44 +28,99 @@ ai:
                 - type: resource
                   path: agent/skills
             agents:
+              # ★★★ 统一输出契约（三字段 JSON，三个智能体都必须遵守）★★★
+              # 最终结果 JSON 固定三个字段：type / explanation / diagram
+              #   type        : "user" | "drawio" | "mixed"
+              #   explanation : 给用户阅读的说明文字（user、mixed 类型使用）
+              #   diagram     : 完整的 draw.io XML 字符串（drawio、mixed 类型使用）
+              #   user   示例：{"type": "user", "explanation": "请补充...的具体信息"}
+              #   drawio 示例：{"type": "drawio", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+              #   mixed  示例：{"type": "mixed", "explanation": "已生成...图表", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+              # 约束：explanation 只放给人看的文字，diagram 只放 XML，两者不得混装；
+              #       输出 JSON 时必须是纯 JSON，禁止附加文字和 Markdown 代码块。
+
               # 1. 需求分析与检索智能体
               - name: agent_analyst
                 description: 负责理解用户意图，调用工具检索信息，并决定是请求补充信息还是继续绘图。
                 instruction: |
-                  你是一个专业的需求分析师。你的任务是分析用户的绘图请求。
+                  你是一个专业的需求分析师，是绘图流程的第 1 步。
+
+                  【统一输出契约】最终结果 JSON 为三字段结构：type / explanation / diagram。
+                  type 只有三种取值：
+                  - "user"：需要用户补充信息，只有 explanation 字段，没有 diagram。
+                    示例：{"type": "user", "explanation": "请补充关于...的具体信息"}
+                  - "drawio"：纯图表数据，只有 diagram 字段（draw.io XML），没有 explanation。
+                    示例：{"type": "drawio", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+                  - "mixed"：说明文字 + 图表数据，explanation 与 diagram 同时存在。
+                    示例：{"type": "mixed", "explanation": "已生成...图表", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+                  规则：explanation 只放给人看的文字，diagram 只放完整 XML；输出 JSON 必须是纯 JSON，禁止 Markdown 代码块。
+
+                  【你的职责】分析用户的绘图请求，按以下规则输出：
                   1. 如果用户提供了具体的上下文或需要引用外部知识（如Git仓库、本地文件），请使用可用的工具（MCP）进行检索和分析。
-                  2. 分析用户的意图：
-                     - 如果用户的描述模糊、不完整，无法直接生成图表，你需要返回 JSON 格式要求用户补充信息。
-                       格式：{"type": "user", "content": "请补充关于...的具体信息"}
-                     - 如果用户意图清晰，请整理出详细的绘图需求（图表类型、节点、关系、布局要求等）。
-                  3. 输出你的分析结果。
+                  2. 分析用户的意图，二选一输出：
+                     - 描述模糊、不完整，无法直接生成图表：输出契约中的 user 类型 JSON，
+                       你只需填写 explanation，禁止输出 diagram 字段。
+                       例如：{"type": "user", "explanation": "请补充关于...的具体信息"}
+                     - 用户意图清晰：输出详细的绘图需求描述文本（图表类型、节点、关系、布局要求等），
+                       这是给下一步绘图智能体看的内部材料，无需 JSON 格式。
+                  3. 图表由后续智能体生成，你只允许输出 user 类型的 JSON，不要尝试输出 drawio / mixed。
                 output-key: analysis_result
 
               # 2. 绘图执行智能体
               - name: agent_drawer
                 description: 根据分析结果生成 Draw.io 的 XML 数据。
                 instruction: |
-                  你是一个 Draw.io 绘图专家。请根据输入 {analysis_result} 进行操作：
-                  1. 如果输入是 {"type": "user", ...}，请直接原样输出该 JSON。
-                  2. 如果输入是详细的绘图需求：
+                  你是一个 Draw.io 绘图专家，是绘图流程的第 2 步。
+
+                  【统一输出契约】最终结果 JSON 为三字段结构：type / explanation / diagram。
+                  type 只有三种取值：
+                  - "user"：需要用户补充信息，只有 explanation 字段，没有 diagram。
+                    示例：{"type": "user", "explanation": "请补充关于...的具体信息"}
+                  - "drawio"：纯图表数据，只有 diagram 字段（draw.io XML），没有 explanation。
+                    示例：{"type": "drawio", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+                  - "mixed"：说明文字 + 图表数据，explanation 与 diagram 同时存在。
+                    示例：{"type": "mixed", "explanation": "已生成...图表", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+
+                  【你的职责】处理输入 {analysis_result}，按以下规则输出：
+                  1. 如果输入以 {"type": "user" 开头（契约中的 user 类型 JSON，需要用户补充信息），
+                     禁止绘图：请直接原样输出该 JSON，一个字符都不要改动。
+                  2. 如果输入是详细的绘图需求文本：
                      - 设计图表的结构（UML、流程图、时序图等）。
                      - 生成符合 Draw.io 规范的 XML 代码。
                      - 确保节点布局合理，逻辑清晰，连线不能交叉等。
-                     - 输出生成的 XML 内容。
+                     - 直接输出 XML 内容（这是给下一步质检智能体的内部中间产物，
+                       暂不需要包成 JSON），不要附加任何解释文字。
+                  3. 你不需要输出最终的三字段 JSON（由质检智能体统一组装）。
                 output-key: draft_diagram
 
               # 3. 检查与优化智能体
               - name: agent_reviewer
                 description: 检查绘图结果，确保无连线交叉等问题，并格式化最终输出。
                 instruction: |
-                  你是一个图表质量检查员。请审查输入 {draft_diagram}：
-                  1. 如果输入是 {"type": "user", ...}，请直接原样输出。
-                  2. 如果输入是 XML 代码：
+                  你是一个图表质量检查员，是绘图流程的第 3 步，也是最终输出格式的把关人。
+
+                  【统一输出契约】最终结果 JSON 为三字段结构：type / explanation / diagram。
+                  type 只有三种取值：
+                  - "user"：需要用户补充信息，只有 explanation 字段，没有 diagram。
+                    示例：{"type": "user", "explanation": "请补充关于...的具体信息"}
+                  - "drawio"：纯图表数据，只有 diagram 字段（draw.io XML），没有 explanation。
+                    示例：{"type": "drawio", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+                  - "mixed"：说明文字 + 图表数据，explanation 与 diagram 同时存在（推荐）。
+                    示例：{"type": "mixed", "explanation": "已生成...图表，包含...", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+
+                  【你的职责】审查输入 {draft_diagram}，按以下规则输出：
+                  1. 如果输入以 {"type": "user" 开头（契约中的 user 类型 JSON，需要用户补充信息），
+                     请直接原样输出该 JSON，一个字符都不要改动。
+                  2. 如果输入是 XML 绘图数据：
                      - 检查连线是否混乱或有严重的交叉（在文本层面尽力优化布局逻辑）。
-                     - 检查 XML 语法是否正确。
-                     - 如果有问题，请尝试修正 XML。
-                     - 最终输出必须严格符合 JSON 格式：
-                       {"type": "drawio", "content": "这里放最终的XML字符串"}
+                     - 检查 XML 语法是否正确，如果有问题请尝试修正 XML。
+                     - 组装为契约中的完整 JSON 输出，优先 mixed 类型：
+                       {"type": "mixed", "explanation": "已生成...图表，包含...（一两句话）", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+                     - 确实无法提炼说明文字时，降级为 drawio 类型：
+                       {"type": "drawio", "diagram": "<mxGraphModel>...</mxGraphModel>"}
+                     - explanation 只写一两句给人看的简要说明，绝不能把 XML 放进 explanation。
+
+                  【硬性规则】你输出的最终结果必须是纯 JSON，禁止附加任何解释文字，禁止使用 Markdown 代码块。
                 output-key: final_result
 
             agent-workflows:
