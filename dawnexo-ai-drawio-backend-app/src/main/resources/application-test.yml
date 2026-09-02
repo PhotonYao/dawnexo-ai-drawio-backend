@@ -39,3 +39,9 @@ logging:
   level:
     root: info
   config: classpath:logback-spring.xml
+
+# 跨域配置；允许的来源，多个用英文逗号分隔，* 表示全部允许
+# 环境变量 CORS_ALLOWED_ORIGINS 可覆盖
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}

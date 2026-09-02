@@ -1,41 +1,54 @@
 server:
-  port: 8091
+  # 容器内监听端口，默认 8090，可通过环境变量 SERVER_PORT 覆盖
+  port: ${SERVER_PORT:8090}
 
 # 线程池配置
 thread:
   pool:
     executor:
       config:
-        core-pool-size: 20
-        max-pool-size: 50
+        core-pool-size: ${THREAD_POOL_CORE_SIZE:20}
+        max-pool-size: ${THREAD_POOL_MAX_SIZE:50}
         keep-alive-time: 5000
         block-queue-size: 5000
         policy: CallerRunsPolicy
 
-# 数据库配置
-#spring:
-#  datasource:
-#    username: root
-#    password: 123456
-#    url: jdbc:mysql://127.0.0.1:3306/xfg_frame_archetype?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=UTC&useSSL=true
-#    driver-class-name: com.mysql.cj.jdbc.Driver
-#  hikari:
-#    pool-name: Retail_HikariCP
-#    minimum-idle: 15 #最小空闲连接数量
-#    idle-timeout: 180000 #空闲连接存活最大时间，默认600000（10分钟）
-#    maximum-pool-size: 25 #连接池最大连接数，默认是10
-#    auto-commit: true  #此属性控制从池返回的连接的默认自动提交行为,默认值：true
-#    max-lifetime: 1800000 #此属性控制池中连接的最长生命周期，值0表示无限生命周期，默认1800000即30分钟
-#    connection-timeout: 30000 #数据库连接超时时间,默认30秒，即30000
-#    connection-test-query: SELECT 1
-#  type: com.zaxxer.hikari.HikariDataSource
+# 数据库配置；敏感信息全部由环境变量注入（docker-compose.yml 中配置）
+spring:
+  datasource:
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:123456}
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:xfg_frame_archetype}?useUnicode=true&characterEncoding=utf8&autoReconnect=true&zeroDateTimeBehavior=convertToNull&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  hikari:
+    pool-name: Retail_HikariCP
+    minimum-idle: 5
+    idle-timeout: 180000
+    maximum-pool-size: 10
+    auto-commit: true
+    max-lifetime: 1800000
+    connection-timeout: 30000
+    connection-test-query: SELECT 1
+  type: com.zaxxer.hikari.HikariDataSource
 
-#mybatis:
-#  mapper-locations: classpath:/mybatis/mapper/*.xml
-#  config-location:  classpath:/mybatis/config/mybatis-config.xml
+  config:
+    import:
+      # 生产环境只装载绘图智能体配置
+      - classpath:agent/agent-draw-io.yml
+  ai:
+    openai:
+      # 大模型 API 密钥与服务地址，由环境变量注入，勿写死在代码仓库
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://apihub.agnes-ai.com}
 
 # 日志
 logging:
   level:
     root: info
   config: classpath:logback-spring.xml
+
+# 跨域配置；允许的来源，多个用英文逗号分隔，* 表示全部允许
+# 环境变量 CORS_ALLOWED_ORIGINS 可覆盖（生产环境在 docker-compose.yml / .env 中配置）
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}

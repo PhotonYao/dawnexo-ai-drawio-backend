@@ -1,0 +1,15 @@
+# 白名单模式：构建上下文只保留 boot jar 和 skills 资源目录
+*
+!Dockerfile
+!src
+src/*
+!src/main
+src/main/*
+!src/main/resources
+src/main/resources/*
+!src/main/resources/agent
+src/main/resources/agent/*
+!src/main/resources/agent/skills
+!target
+target/*
+!target/ai-agent-scaffold-app.jar

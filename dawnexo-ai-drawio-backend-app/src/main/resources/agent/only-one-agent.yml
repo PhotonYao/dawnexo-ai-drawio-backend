@@ -10,8 +10,8 @@ ai:
             agent-desc: 单一智能体
           module:
             ai-api:
-              base-url: https://apihub.agnes-ai.com/
-              api-key: 
+              base-url: ${OPENAI_BASE_URL:https://apihub.agnes-ai.com/}
+              api-key: ${OPENAI_API_KEY:}
               completions-path: v1/chat/completions
               embeddings-path: v1/embeddings
             chat-model:

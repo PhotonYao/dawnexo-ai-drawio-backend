@@ -10,8 +10,8 @@ ai:
             agent-desc: 人 + AI + Draw.io，交互式对话完成 draw.io 绘图。
           module:
             ai-api:
-              base-url: https://apihub.agnes-ai.com/
-              api-key: 
+              base-url: ${OPENAI_BASE_URL:https://apihub.agnes-ai.com/}
+              api-key: ${OPENAI_API_KEY:}
               completions-path: v1/chat/completions
               embeddings-path: v1/embeddings
             chat-model:
@@ -25,8 +25,11 @@ ai:
                 - local:
                     name: myToolCallbackProvider
               tool-skills-list:
-                - type: resource
-                  path: agent/skills
+                # 本地默认 resource（IDE 非 fat jar 环境可按目录读 classpath）；
+                # 容器内 fat jar 无法按目录读取资源，由 compose 环境变量切换为
+                # directory + 镜像内置真实路径（/app/agent/skills）
+                - type: ${SKILLS_TYPE:resource}
+                  path: ${SKILLS_PATH:agent/skills}
             agents:
               # ★★★ 统一输出契约（三字段 JSON，三个智能体都必须遵守）★★★
               # 最终结果 JSON 固定三个字段：type / explanation / diagram
