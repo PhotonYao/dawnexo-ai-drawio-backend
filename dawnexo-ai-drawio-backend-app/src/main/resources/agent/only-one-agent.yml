@@ -42,5 +42,4 @@ ai:
             runner:
               agent-name: onlyAgent
               plugin-name-list:
-                - myTestPlugin
                 - myLogPlugin

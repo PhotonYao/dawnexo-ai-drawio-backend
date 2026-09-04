@@ -12,10 +12,10 @@ ai:
             ai-api:
               base-url: ${OPENAI_BASE_URL:https://apihub.agnes-ai.com/}
               api-key: ${OPENAI_API_KEY:}
-              completions-path: v1/chat/completions
-              embeddings-path: v1/embeddings
+              completions-path: ${OPENAI_COMPLETIONS_PATH:v1/chat/completions}
+              embeddings-path: ${OPENAI_EMBEDDINGS_PATH:v1/embeddings}
             chat-model:
-              model: agnes-2.0-flash
+              model: ${OPENAI_MODEL:agnes-2.0-flash}
               tool-mcp-list:
                 - sse:
                     name: bing-cn-mcp-server
@@ -156,3 +156,5 @@ ai:
             runner:
               # 指定入口为串行工作流，这是最稳健的配置
               agent-name: sequential_draw_process
+              plugin-name-list:
+                - myLogPlugin

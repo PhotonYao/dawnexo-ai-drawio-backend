@@ -41,3 +41,6 @@ build/
 # Runtime logs and data
 data/
 dawnexo-ai-drawio-backend-app/data/
+
+# 环境变量文件（含密钥，禁止提交）
+.env
