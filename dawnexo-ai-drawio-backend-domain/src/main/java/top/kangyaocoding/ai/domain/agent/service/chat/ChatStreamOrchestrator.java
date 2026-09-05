@@ -61,10 +61,19 @@ public class ChatStreamOrchestrator {
                     .concatMap(event -> Flowable.fromIterable(processEvent(event, state)))
                     // 终止事件透出后立即完成下游并取消上游（后续智能体不再调用）
                     .takeUntil(ChatStreamEvent::terminal)
-                    // 上游无终止事件就正常结束时补发 error，避免前端无限等待
-                    .concatWith(Flowable.defer(() -> state.finished
-                            ? Flowable.empty()
-                            : Flowable.just(ChatStreamEvent.error("本次未能生成有效结果，请重试"))));
+                    // 上游自然结束却没有终止事件时的兜底：
+                    // 有记录到纯文本轮次（如单智能体直接对话）则优雅收尾为普通回复，否则报错
+                    .concatWith(Flowable.defer(() -> {
+                        if (state.finished) {
+                            return Flowable.empty();
+                        }
+                        if (null != state.lastTurnText && !state.lastTurnText.isEmpty()) {
+                            return Flowable.just(
+                                    ChatStreamEvent.message("user", state.lastTurnText),
+                                    ChatStreamEvent.done(state.sessionId, "user"));
+                        }
+                        return Flowable.just(ChatStreamEvent.error("本次未能生成有效结果，请重试"));
+                    }));
         });
     }
 
@@ -140,12 +149,12 @@ public class ChatStreamOrchestrator {
                         ChatStreamEvent.done(state.sessionId, responseType));
             }
 
-            // 契约里的 diagram 无效：前两轮放行给后续质检智能体修复，最后一轮直接报错
-            if (turnIndex < 2) {
-                out.add(ChatStreamEvent.stage(ChatStreamEvent.STAGE_REVIEW, author));
-                return out;
+            // 契约里的 diagram 无效：静默等待后续质检智能体修复（其首个事件会自然推进 review 阶段），
+            // 若已是最后一轮则报错
+            if (turnIndex >= 2) {
+                return terminal(out, state, ChatStreamEvent.error("图表校验未通过，请重试或补充更具体的需求"));
             }
-            return terminal(out, state, ChatStreamEvent.error("图表校验未通过，请重试或补充更具体的需求"));
+            return out;
         }
 
         // 2. 非 JSON 输出：尝试提取 XML（绘图智能体的裸 XML / 单智能体配置直接出图）
@@ -158,17 +167,19 @@ public class ChatStreamOrchestrator {
                     ChatStreamEvent.done(state.sessionId, "mixed"));
         }
 
-        // 3. 非 JSON 且无 XML 的纯文本：
-        //    - 第 1 轮（analyst）的纯文本是给 drawer 看的内部需求描述，推进到绘图；
-        //    - 第 2 轮起仍是纯文本，说明工作流没有产出图表（如用户闲聊时各智能体跟聊），
-        //      把最后一轮文本作为普通对话回复优雅收尾，而不是误报"校验未通过"。
-        if (turnIndex == 0) {
-            out.add(ChatStreamEvent.stage(ChatStreamEvent.STAGE_DRAW, author));
-            return out;
+        // 3. 非 JSON 且无 XML 的纯文本：记录待用，不做任何决定。
+        //    智能体的个数与角色因配置而异（三步工作流的首轮纯文本是给 drawer 的内部需求描述，
+        //    单智能体的纯文本则可能就是最终回复），轮次序号无法推断角色，因此：
+        //    - 若后续轮次仍是纯文本（说明工作流在跟聊而非绘图）→ 立即以普通回复收尾；
+        //    - 若工作流就此结束 → 由 stream() 的完成兜底用本条文本优雅收尾。
+        //    阶段推进由下一个智能体的首个事件自然触发，这里不再主动预发 stage。
+        state.lastTurnText = text;
+        if (turnIndex >= 1) {
+            return terminal(out, state,
+                    ChatStreamEvent.message("user", text),
+                    ChatStreamEvent.done(state.sessionId, "user"));
         }
-        return terminal(out, state,
-                ChatStreamEvent.message("user", text),
-                ChatStreamEvent.done(state.sessionId, "user"));
+        return out;
     }
 
     /**
@@ -258,6 +269,8 @@ public class ChatStreamOrchestrator {
         private final Set<String> stages = new java.util.HashSet<>();
         /** 已处理的轮次终稿数 */
         private int turnFinals = 0;
+        /** 最近一次纯文本轮次的内容（工作流无终止事件结束时的兜底回复用） */
+        private String lastTurnText;
         private boolean finished = false;
 
         private StreamState(String sessionId) {
