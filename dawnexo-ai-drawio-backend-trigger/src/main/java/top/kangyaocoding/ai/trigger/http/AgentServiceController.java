@@ -1,23 +1,33 @@
 package top.kangyaocoding.ai.trigger.http;
 
 import com.alibaba.fastjson.JSON;
+import io.reactivex.rxjava3.disposables.Disposable;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.kangyaocoding.ai.api.IAgentService;
 import top.kangyaocoding.ai.api.dto.*;
 import top.kangyaocoding.ai.api.enums.MessageTypeEnum;
 import top.kangyaocoding.ai.api.response.Response;
 import top.kangyaocoding.ai.domain.agent.model.valobj.AiAgentConfigTableVO;
+import top.kangyaocoding.ai.domain.agent.model.valobj.ChatStreamEvent;
 import top.kangyaocoding.ai.domain.agent.service.IChatService;
+import top.kangyaocoding.ai.domain.agent.service.chat.ChatStreamOrchestrator;
 import top.kangyaocoding.ai.types.enums.ResponseCode;
 import top.kangyaocoding.ai.types.exception.AppException;
 
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -32,6 +42,28 @@ public class AgentServiceController implements IAgentService {
 
     @Resource
     private IChatService chatService;
+
+    @Resource
+    private ChatStreamOrchestrator chatStreamOrchestrator;
+
+    /**
+     * 流式对话响应整体超时（5 分钟），覆盖「分析 -> 绘图 -> 质检修复」的最坏情况
+     */
+    private static final long STREAM_TIMEOUT_MILLIS = 5 * 60 * 1000L;
+
+    /**
+     * SSE 心跳间隔：阶段切换/长耗时 LLM 调用期间的静默空窗里持续发送注释帧，防止网关读超时断链
+     */
+    private static final long HEARTBEAT_INTERVAL_SECONDS = 15L;
+
+    /**
+     * 共享心跳调度线程池（守护线程，仅发送轻量注释帧）
+     */
+    private static final ScheduledExecutorService HEARTBEAT_SCHEDULER = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "sse-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     /**
      * 查询智能体配置列表接口
@@ -224,41 +256,117 @@ public class AgentServiceController implements IAgentService {
     }
 
     /**
-     * 流式聊天请求的接口
-     * 该方法接收一个聊天请求DTO，返回一个响应体发射器，用于流式返回聊天响应
+     * 流式聊天接口（SSE）。
+     * 事件协议（事件名 + JSON data）：
+     * <ul>
+     *   <li>stage   —— 工作流阶段 analyze/draw/review，前端据此更新等待提示</li>
+     *   <li>diagram —— 完整且后端校验通过的 draw.io XML 快照（phase: draft/final），前端直接加载画布</li>
+     *   <li>message —— 给用户阅读的完整文本（type: user/mixed/drawio）</li>
+     *   <li>done    —— 正常结束，回传 sessionId（自愈后前端以此为准）</li>
+     *   <li>error   —— 失败说明</li>
+     * </ul>
+     * 期间每 15 秒发送一次注释帧心跳，客户端断开/超时即取消上游大模型调用，避免空跑。
      *
      * @param requestDTO 聊天请求数据传输对象，包含agentId、userId、sessionId和message等信息
-     * @return ResponseBodyEmitter 用于流式发送响应的发射器，设置超时时间为3分钟
+     * @param response   Servlet 响应，用于下发 X-Accel-Buffering 头（关闭 nginx 代理缓冲，SSE 直通）
+     * @return SseEmitter（方法签名保持父接口的 ResponseBodyEmitter）
      */
     @RequestMapping(value = "chat_stream",
             method = RequestMethod.POST,
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Override
-    public ResponseBodyEmitter chatStream(@RequestBody ChatRequestDTO requestDTO) {
-        // 创建响应体发射器，设置超时时间为3分钟
-        ResponseBodyEmitter emitter = new ResponseBodyEmitter(3 * 60 * 1000L);
+    public ResponseBodyEmitter chatStream(@RequestBody ChatRequestDTO requestDTO, HttpServletResponse response) {
+        // nginx 依据该响应头关闭代理缓冲；配合心跳注释帧，长对话不再被网关读超时切断
+        response.setHeader("X-Accel-Buffering", "no");
+        response.setCharacterEncoding("UTF-8");
 
+        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MILLIS);
+
+        String sessionId;
         try {
             log.info("流式对话 agentId:{} userId:{} sessionId:{} message:{}", requestDTO.getAgentId(), requestDTO.getUserId(), requestDTO.getSessionId(), requestDTO.getMessage());
             // 校验并确保会话归属正确，防止会话交叉污染
-            String sessionId = chatService.ensureSession(requestDTO.getAgentId(), requestDTO.getUserId(), requestDTO.getSessionId());
-            chatService.handleMessageStream(requestDTO.getAgentId(), requestDTO.getUserId(), sessionId, requestDTO.getMessage())
-                    .subscribe(
-                            event -> {
-                                try {
-                                    emitter.send(event.stringifyContent());
-                                } catch (Exception e) {
-                                    log.error("流式对话发送失败", e);
-                                    emitter.completeWithError(e);
-                                }
-                            },
-                            emitter::completeWithError,
-                            emitter::complete
-                    );
+            sessionId = chatService.ensureSession(requestDTO.getAgentId(), requestDTO.getUserId(), requestDTO.getSessionId());
         } catch (Exception e) {
-            log.error("流式对话失败", e);
+            log.error("流式对话会话初始化失败 agentId:{} userId:{}", requestDTO.getAgentId(), requestDTO.getUserId(), e);
             emitter.completeWithError(e);
+            return emitter;
         }
+
+        String finalSessionId = sessionId;
+        // 心跳：静默空窗期间持续发送注释帧；发送失败说明客户端已断开，走 completeWithError 触发清理。
+        // 心跳线程与事件推送线程并发发送，统一以 emitter 为锁串行化，避免 SSE 帧交错损坏
+        ScheduledFuture<?> heartbeat = HEARTBEAT_SCHEDULER.scheduleAtFixedRate(() -> {
+            try {
+                synchronized (emitter) {
+                    emitter.send(SseEmitter.event().comment("ping"));
+                }
+            } catch (Exception e) {
+                emitter.completeWithError(e);
+            }
+        }, HEARTBEAT_INTERVAL_SECONDS, HEARTBEAT_INTERVAL_SECONDS, TimeUnit.SECONDS);
+
+        // 上游订阅持有者：发送失败/客户端断开时取消大模型调用，避免空跑烧 token
+        AtomicReference<Disposable> upstreamRef = new AtomicReference<>();
+        Disposable upstream = chatStreamOrchestrator
+                .stream(requestDTO.getAgentId(), requestDTO.getUserId(), finalSessionId, requestDTO.getMessage())
+                // Rx 侧完成/出错/被取消时统一停掉心跳
+                .doFinally(() -> heartbeat.cancel(false))
+                .subscribe(
+                        event -> {
+                            try {
+                                synchronized (emitter) {
+                                    emitter.send(SseEmitter.event()
+                                            .name(event.getType())
+                                            .data(JSON.toJSONString(event), MediaType.APPLICATION_JSON));
+                                }
+                            } catch (Exception e) {
+                                log.error("流式对话发送失败 sessionId:{}", finalSessionId, e);
+                                cancelUpstream(upstreamRef);
+                                emitter.completeWithError(e);
+                            }
+                        },
+                        error -> {
+                            log.error("流式对话失败 sessionId:{}", finalSessionId, error);
+                            sendSafely(emitter, ChatStreamEvent.error("服务繁忙，请稍后重试"));
+                            emitter.complete();
+                        },
+                        () -> emitter.complete());
+        upstreamRef.set(upstream);
+
+        // 客户端断开/超时/完成时，取消上游订阅与心跳
+        Runnable cleanup = () -> {
+            heartbeat.cancel(false);
+            cancelUpstream(upstreamRef);
+        };
+        emitter.onCompletion(cleanup);
+        emitter.onTimeout(() -> {
+            cleanup.run();
+            emitter.complete();
+        });
+        emitter.onError(t -> cleanup.run());
         return emitter;
+    }
+
+    /**
+     * 取消流式上游订阅
+     */
+    private void cancelUpstream(AtomicReference<Disposable> upstreamRef) {
+        Disposable upstream = upstreamRef.get();
+        if (null != upstream && !upstream.isDisposed()) {
+            upstream.dispose();
+        }
+    }
+
+    /**
+     * 兜底发送 error 事件（仅在连接仍可用时送达，失败静默）
+     */
+    private void sendSafely(SseEmitter emitter, ChatStreamEvent event) {
+        try {
+            synchronized (emitter) {
+                emitter.send(SseEmitter.event().name(event.getType()).data(JSON.toJSONString(event), MediaType.APPLICATION_JSON));
+            }
+        } catch (Exception ignored) {
+        }
     }
 }

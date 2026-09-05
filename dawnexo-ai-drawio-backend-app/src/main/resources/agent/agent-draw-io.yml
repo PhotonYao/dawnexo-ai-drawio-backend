@@ -67,6 +67,9 @@ ai:
                      - 用户意图清晰：输出详细的绘图需求描述文本（图表类型、节点、关系、布局要求等），
                        这是给下一步绘图智能体看的内部材料，无需 JSON 格式。
                   3. 图表由后续智能体生成，你只允许输出 user 类型的 JSON，不要尝试输出 drawio / mixed。
+                  4. 与绘图无关的对话（问候、询问你是谁、能力咨询、闲聊等）同样必须以 user 类型 JSON 输出：
+                     把你对该问题的回答完整放进 explanation，禁止输出 diagram 字段，禁止以纯文本回答。
+                     例如：{"type": "user", "explanation": "我是 AI 绘图助手，可以帮你把需求转换为 draw.io 图表。"}
                 output-key: analysis_result
 
               # 2. 绘图执行智能体

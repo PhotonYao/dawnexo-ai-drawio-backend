@@ -1,5 +1,6 @@
 package top.kangyaocoding.ai.domain.agent.service.chat;
 
+import com.google.adk.agents.RunConfig;
 import com.google.adk.events.Event;
 import com.google.adk.runner.InMemoryRunner;
 import com.google.adk.sessions.Session;
@@ -217,6 +218,15 @@ public class ChatService implements IChatService {
     }
 
     /**
+     * 流式运行配置：SSE 模式使底层模型走流式分支，逐 token 产出增量事件。
+     * 注意：MySpringAI 桥接层做了增量聚合——增量事件 partial=true（只下发不落会话），
+     * 每次模型调用结束时补发一条 partial=false 的全量事件（参与 output-key 保存与会话持久化）。
+     */
+    private static final RunConfig STREAM_RUN_CONFIG = RunConfig.builder()
+            .setStreamingMode(RunConfig.StreamingMode.SSE)
+            .build();
+
+    /**
      * 向指定智能体在指定会话中发送消息并以流式方式返回回复事件。
      *
      * @param agentId   智能体 ID
@@ -235,8 +245,8 @@ public class ChatService implements IChatService {
         // 将用户文本消息封装为 Content
         Content userMsg = Content.fromParts(Part.fromText(message));
 
-        // 直接返回异步事件流，由调用方订阅以获取流式回复
-        return runner.runAsync(userId, sessionId, userMsg);
+        // 以 SSE 流式模式运行，由调用方订阅以逐个接收事件（含增量与轮次终稿）
+        return runner.runAsync(userId, sessionId, userMsg, STREAM_RUN_CONFIG);
     }
 
     /**

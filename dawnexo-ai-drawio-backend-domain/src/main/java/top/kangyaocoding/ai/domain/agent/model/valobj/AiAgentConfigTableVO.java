@@ -67,6 +67,15 @@ public class AiAgentConfigTableVO {
             private String apiKey;
             private String completionsPath = "/v1/chat/completions";
             private String embeddingsPath = "/v1/embeddings";
+            /**
+             * 大模型 HTTP 连接超时（秒）
+             */
+            private Integer connectTimeoutSeconds = 10;
+            /**
+             * 大模型 HTTP 读超时（秒）；需覆盖多智能体串行长生成的最坏情况，
+             * 未配置时默认 300，避免生产环境因无超时配置而无限挂起
+             */
+            private Integer readTimeoutSeconds = 300;
         }
 
         @Data

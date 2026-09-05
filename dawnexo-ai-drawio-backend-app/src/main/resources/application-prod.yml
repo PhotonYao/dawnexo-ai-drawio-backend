@@ -15,6 +15,10 @@ thread:
 
 # 数据库配置；敏感信息全部由环境变量注入（docker-compose.yml 中配置）
 spring:
+  # 异步请求（SSE 流式对话）整体超时；SseEmitter 已显式设置 5 分钟，此处兜底对齐
+  mvc:
+    async:
+      request-timeout: 300000
   datasource:
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:123456}

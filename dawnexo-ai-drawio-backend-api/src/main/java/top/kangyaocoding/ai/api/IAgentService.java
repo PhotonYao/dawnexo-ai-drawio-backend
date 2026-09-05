@@ -1,5 +1,6 @@
 package top.kangyaocoding.ai.api;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 import top.kangyaocoding.ai.api.dto.*;
 import top.kangyaocoding.ai.api.response.Response;
@@ -42,6 +43,6 @@ public interface IAgentService {
      * @param requestDTO 聊天流请求参数
      * @return 聊天流响应参数
      */
-    ResponseBodyEmitter chatStream(ChatRequestDTO requestDTO);
+    ResponseBodyEmitter chatStream(ChatRequestDTO requestDTO, HttpServletResponse response);
 
 }
